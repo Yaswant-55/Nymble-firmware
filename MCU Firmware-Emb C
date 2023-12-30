@@ -1,0 +1,73 @@
+#include <avr/io.h>
+#include <avr/eeprom.h>
+#include <util/delay.h>
+
+#define F_CPU 16000000UL  // Assuming a 16MHz clock frequency
+#define UART_BAUDRATE 2400
+
+// Function prototypes
+void setupUART();
+void sendByte(char data);
+char receiveByte();
+void saveToMemory(char data);
+void readAndSendFromMemory();
+
+int main() {
+    setupUART();
+
+    // PC to MCU transmission
+    while (1) {
+        char userData = receiveByte();
+        if (userData == '\0') {  // End of transmission
+            break;
+        }
+        saveToMemory(userData);
+    }
+
+    // MCU to PC transmission
+    readAndSendFromMemory();
+
+    return 0;
+}
+
+void setupUART() {
+    uint16_t baudValue = F_CPU / 16 / UART_BAUDRATE - 1;
+    UBRR0H = (uint8_t)(baudValue >> 8);
+    UBRR0L = (uint8_t)baudValue;
+    UCSR0B |= (1 << TXEN0) | (1 << RXEN0);
+    UCSR0C |= (1 << UCSZ01) | (1 << UCSZ00);  // 8-bit data format
+}
+
+void sendByte(char data) {
+    while (!(UCSR0A & (1 << UDRE0)))
+        ;
+    UDR0 = data;
+}
+
+char receiveByte() {
+    while (!(UCSR0A & (1 << RXC0)))
+        ;
+    return UDR0;
+}
+
+void saveToMemory(char data) {
+    // Write data to EEPROM
+    static uint16_t userAddress = 0;
+    eeprom_write_byte((uint8_t*)userAddress, data);
+    userAddress++;
+}
+
+void readAndSendFromMemory() {
+    // Read data from EEPROM and transmit
+    static uint16_t userAddress = 0;
+    char data = eeprom_read_byte((uint8_t*)userAddress);
+    
+    while (data != 0xFF) {
+        sendByte(data);
+        userAddress++;
+        data = eeprom_read_byte((uint8_t*)userAddress);
+    }
+    
+    // Transmit end of transmission
+    sendByte('\0');
+}
